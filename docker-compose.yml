@@ -1,0 +1,39 @@
+# docker-compose.yml
+# For LOCAL testing / staging OR simple single-server ECS Anywhere.
+# Volumes keep auth_info persistent so you don't re-scan QR.
+#
+# Run locally:  docker compose up --build
+# Stop:         docker compose down   (add -v to wipe volumes)
+
+services:
+  kami-bot:
+    build: .
+    container_name: kami-bot
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      # Read all keys from .env file (never commit it)
+    env_file:
+      - .env
+    volumes:
+      # 👇 These are what keep your WhatsApp session + Drive cache alive!
+      - kami-auth:/app/auth_info
+      - kami-config:/app/config
+      - kami-logs:/app/logs
+      - ./drive_cache:/app/drive_cache   # optional shared cache dir
+    mem_limit: 1024m
+    mem_reservation: 512m
+    cpus: '1.0'
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
+
+volumes:
+  kami-auth:
+  kami-config:
+  kami-logs:

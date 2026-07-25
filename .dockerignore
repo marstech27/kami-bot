@@ -1,0 +1,23 @@
+# ── Dependencies ───────────────────────────
+node_modules
+npm-debug.log
+
+# ── Secrets (NEVER bake into image) ───────────
+.env
+config/service-account.json
+
+# ── State (mounted as volumes) ──────────────
+auth_info/
+.drive_cache.json
+
+# ── Logs ─────────────────────────────────
+logs
+*.log
+
+# ── Git / OS ──────────────────────────────
+.git
+.gitignore
+.DS_Store
+README.md
+.vscode
+.idea
