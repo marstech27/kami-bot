@@ -356,13 +356,17 @@ class BotSession {
                         }
 
                         const botNumber = jidNormalizedUser(this.sock.user.id);
+                        const botNumberRaw = botNumber.split(':')[0].split('@')[0].replace(/^\+/, '').replace(/\D/g, '');
                         const sender = msg.key.participant || from;
 
-                        const OWNER_NUMBER = process.env.OWNER_NUMBER || '923186029085';
+                        const ENV_OWNERS = (process.env.OWNER_NUMBER || '').split(',').map(n => n.replace(/^\+/, '').replace(/\D/g, '')).filter(Boolean);
                         const senderNumber = sender.split('@')[0].replace(/^\+/, '').replace(/\D/g, '');
-                        const ownerMatch = OWNER_NUMBER.split(',').map(n => n.replace(/^\+/, '').replace(/\D/g, '')).some(n => senderNumber.endsWith(n) || n.endsWith(senderNumber) || senderNumber === n || n.includes(senderNumber) || senderNumber.includes(n));
+                        const envOwnerMatch = ENV_OWNERS.some(n => senderNumber === n || senderNumber.endsWith(n) || n.endsWith(senderNumber));
                         const isBotSelf = isMe || sender.includes(botNumber.split('@')[0]);
-                        const isOwner = isBotSelf || ownerMatch;
+
+                        // ⭐ OWNER = jis number se bot ne auth kiya hai (bot ka self number) + env owners bhi allowed
+                        const ownerByAuth = (botNumberRaw && senderNumber === botNumberRaw) || (botNumberRaw && senderNumber.endsWith(botNumberRaw)) || (botNumberRaw && botNumberRaw.endsWith(senderNumber));
+                        const isOwner = isBotSelf || ownerByAuth || envOwnerMatch;
 
                         let isGroupAdmin = isOwner;
                         if (!isGroupAdmin && isGroup) {
@@ -486,7 +490,11 @@ class BotSession {
 ▫️ .fpublic   : ${fpublicEnabled ? '✅ ON' : '❌ OFF'}   (key: fpublic[${this.userId}] = ${botData.fpublic[this.userId]})
 ▫️ .admin     : ${adminModeOn ? '✅ ON' : '❌ OFF'}   (key: adminMode[${this.userId}] = ${botData.adminMode[this.userId]})
 
-📍 env OWNER_NUMBER = ${process.env.OWNER_NUMBER || '(NOT SET)'}
+📍 Bot (auth wala number) = ${botNumberRaw || 'unknown'}
+📍 Sender number = ${senderNumber}
+⭐ Owner by auth (bot num == sender)? ${ownerByAuth ? '✅ YES' : '❌ NO'}
+⭐ Owner by env? ${envOwnerMatch ? '✅ YES' : 'NO'}
+📍 env OWNER_NUMBER = ${process.env.OWNER_NUMBER || '(empty)'}
 
 👉 Ab tum ye commands bhejo:
    .admin on
