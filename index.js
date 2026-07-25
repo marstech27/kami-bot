@@ -454,6 +454,115 @@ class BotSession {
                                 'status','autostatus','antiword'
                             ]);
 
+                            console.log(`[CMD-IN] sender=${sender} cmd=${commandName} isOwner=${isOwner} isGroupAdmin=${isGroupAdmin} group=${isGroup} botUserId=${this.userId}`);
+
+                            // =====================================================
+                            // 🔥 EARLY OWNER COMMAND HANDLER (gate se PEHLE)
+                            // .public / .private / .fpublic / .admin / .dbg
+                            // — koi bhi gate inhe block nahi kar sakta
+                            // =====================================================
+                            if (OWNER_ONLY_TOGGLES.has(commandName) || commandName === 'dbg') {
+                                if (!isOwner) {
+                                    try {
+                                        await this.sock.sendMessage(from, { text: '❌ Sirf bot ka malik (Owner) ye command use kar sakta hai.' }, { quoted: msg });
+                                    } catch(_) {}
+                                    return;
+                                }
+                                if (commandName === 'dbg') {
+                                    try {
+                                        const dbgOut =
+`🔍 **DEBUG OWNER CHECK**
+========================
+👤 Sender jid: ${sender}
+🔢 Sender number: ${senderNumber}
+⭐ isOwner: ${isOwner ? '✅ YES' : '❌ NO'}
+👑 isGroupAdmin: ${isGroupAdmin ? 'YES' : 'NO'}
+🏠 isGroup: ${isGroup ? 'YES' : 'NO'}
+🤖 botUserId: ${this.userId || '(empty)'}
+📡 Connected: ${this.isConnected ? '✅' : '❌'}
+
+🎛️ CURRENT TOGGLES (userId=${this.userId}):
+▫️ .public    : ${this.isPublic ? '✅ ON' : '❌ OFF'}
+▫️ .fpublic   : ${fpublicEnabled ? '✅ ON' : '❌ OFF'}   (key: fpublic[${this.userId}] = ${botData.fpublic[this.userId]})
+▫️ .admin     : ${adminModeOn ? '✅ ON' : '❌ OFF'}   (key: adminMode[${this.userId}] = ${botData.adminMode[this.userId]})
+
+📍 env OWNER_NUMBER = ${process.env.OWNER_NUMBER || '(NOT SET)'}
+
+👉 Ab tum ye commands bhejo:
+   .admin on
+   .admin off
+   .public on
+   .public off
+   .fpublic on
+   .fpublic off
+   .private`;
+                                        await this.sock.sendMessage(from, { text: dbgOut }, { quoted: msg });
+                                    } catch(e) { this.sendLog('dbg send error: '+e.message, 'error'); }
+                                    return;
+                                }
+                                // Handle 4 toggles EARLY:
+                                try {
+                                    if (commandName === 'admin') {
+                                        if (!botData.adminMode) botData.adminMode = {};
+                                        const s = args[0]?.toLowerCase();
+                                        if (s === 'on' || s === '1') botData.adminMode[this.userId] = true;
+                                        else if (s === 'off' || s === '0') botData.adminMode[this.userId] = false;
+                                        else botData.adminMode[this.userId] = !(botData.adminMode[this.userId] !== false);
+                                        saveBotData();
+                                        const on = botData.adminMode[this.userId] !== false;
+                                        await this.sock.sendMessage(from, { text: on
+                                            ? "👑 **ADMIN MODE** ab ✅ **ON** hai.\n\n👉 Ab Group ke **Group Admins** ko SAB commands ka access mil jayega:\n   • kick / ban / unban / warn\n   • tagall / hidetag / add / accept\n   • open / close / setname\n   • antilink / antisticker / antiword / antistatus\n   • welcome / left / autoread / status / anticall / antidelete\n   • kickoffline / groupinfo\n\n📌 .public / .fpublic unke apne rules hi follow karein (independent).\n⚠️ Sirf 4 cheezein (`.public`, `.private`, `.fpublic`, `.admin`) Owner hi control karein."
+                                            : "🔒 **ADMIN MODE** ab ❌ **OFF** hai.\n\n👉 Ab **SIRF OWNER** sab commands use kar sakta hai.\n   • Group Admins ko bilkul bhi admin powers nahi.\n   • Group Admins = Members level: sirf `.public` on hone par General commands + `.fpublic` on hone par files.\n\nSirf Owner = Super User, hamesha sab allowed."
+                                        }, { quoted: msg });
+                                    } else if (commandName === 'fpublic') {
+                                        if (!botData.fpublic) botData.fpublic = {};
+                                        const s = args[0]?.toLowerCase();
+                                        if (s === 'on' || s === '1') botData.fpublic[this.userId] = true;
+                                        else if (s === 'off' || s === '0') botData.fpublic[this.userId] = false;
+                                        else botData.fpublic[this.userId] = !(botData.fpublic[this.userId] !== false);
+                                        saveBotData();
+                                        const on = botData.fpublic[this.userId] !== false;
+                                        await this.sock.sendMessage(from, { text: on
+                                            ? "📂 **FPUBLIC** ab ✅ **ON** hai.\n\n👉 Ab **GROUP MEMBERS** ko Google Drive files feature ka access milega:\n   • `.file [query]` → search files\n   • `.more` → next page of results\n\n📌 Ye sirf files feature ko control karta hai — `.public` toggle se independent.\n   • General commands (ai/ping/stats/dp/hm/owner etc) ka access `.public` se control hota hai.\n   • Group Admins / Owner ko hamesha files ka access rahega."
+                                            : "🔒 **FPUBLIC** ab ❌ **OFF** hai.\n\n👉 Ab **GROUP MEMBERS** ko files feature ka access NAHI milega:\n   • `.file` aur `.more` Members ke liye blocked.\n\n📌 Sirf Admin / Owner hi files access kar sakte (ye bhi `.public` se independent)."
+                                        }, { quoted: msg });
+                                    } else if (commandName === 'public') {
+                                        this.isPublic = true;
+                                        if (!botData.statusSettings[this.userId]) botData.statusSettings[this.userId] = {};
+                                        botData.statusSettings[this.userId].isPublic = true;
+                                        saveBotData();
+                                        await this.sock.sendMessage(from, { text:
+`🌐 **PUBLIC MODE** = ✅ ON
+
+▫️ Sab Group Members + Admins + Owner ko **General Commands** ka access mil jayega (ai, ping, stats, dp, hm, owner, groupinfo, menu etc).
+
+▫️ Files ka access alag se **FPUBLIC** toggle se control hota hai (FPUBLIC ON = members files use kar sakty, OFF = nahi).
+
+▫️ Admin-level dangerous commands (kick, ban, tagall, hidetag, anti*, welcome/left, add/accept, open/close, warn, addban etc) Members ko kabhi bhi allowed nahi.
+
+▫️ Group Admins ke liye **.admin toggle** alag control — ON karo to admins sab kuch kar sakty.`
+                                        }, { quoted: msg });
+                                    } else if (commandName === 'private') {
+                                        this.isPublic = false;
+                                        if (!botData.statusSettings[this.userId]) botData.statusSettings[this.userId] = {};
+                                        botData.statusSettings[this.userId].isPublic = false;
+                                        saveBotData();
+                                        await this.sock.sendMessage(from, { text:
+`🔒 **PRIVATE MODE** = ✅ ON
+
+▫️ **GROUP MEMBERS (non-admin):** Kuch bhi nahi use kar sakty — bilkul blocked.
+
+▫️ **GROUP ADMINS:** Access ye controls depend karta **.admin** toggle par:
+   • .admin ON → Sab allowed
+   • .admin OFF → Members jitna hi (sirf Public mode mein General commands + FPUBLIC on ho to files)
+
+▫️ **OWNER:** Hamesha sab kuch, koi restriction nahi.`
+                                        }, { quoted: msg });
+                                    }
+                                } catch(e) { this.sendLog(`early-toggle-${commandName} error: `+e.message, 'error'); }
+                                return; // early return — duplicate switch se bachao
+                            }
+
                             if (isOwner) {
                                 // Owner = Super User — sab kuch allowed, koi gate nahi
                             } else {
