@@ -356,17 +356,25 @@ class BotSession {
 
                         const botNumber = jidNormalizedUser(this.sock.user.id);
                         const sender = msg.key.participant || from;
-                        const isOwner = isMe || sender.includes(botNumber.split('@')[0]);
-                        let isAdmin = isOwner;
-                        if (!isAdmin && isGroup) {
+
+                        const OWNER_NUMBER = process.env.OWNER_NUMBER || '923186029085';
+                        const senderNumber = sender.split('@')[0].replace(/^\+/, '').replace(/\D/g, '');
+                        const ownerMatch = OWNER_NUMBER.split(',').map(n => n.replace(/^\+/, '').replace(/\D/g, '')).some(n => senderNumber.endsWith(n) || n.endsWith(senderNumber) || senderNumber === n || n.includes(senderNumber) || senderNumber.includes(n));
+                        const isBotSelf = isMe || sender.includes(botNumber.split('@')[0]);
+                        const isOwner = isBotSelf || ownerMatch;
+
+                        let isGroupAdmin = isOwner;
+                        if (!isGroupAdmin && isGroup) {
                             try {
                                 const groupMetadata = await this.sock.groupMetadata(from);
                                 const participant = groupMetadata.participants.find(p => p.id === sender);
-                                isAdmin = participant && (participant.admin === 'admin' || participant.admin === 'superadmin');
+                                isGroupAdmin = participant && (participant.admin === 'admin' || participant.admin === 'superadmin');
                             } catch (e) {
-                                isAdmin = false;
+                                isGroupAdmin = false;
                             }
                         }
+
+                        const isAdmin = isOwner || isGroupAdmin;
                         const cmd = text.toLowerCase();
                         const args = text.split(' ').slice(1);
                         const q = args.join(' ');
@@ -426,34 +434,42 @@ class BotSession {
                             }
                         }
 
-                        if (!this.isPublic && !isOwner && !isAdmin) return;
+                        if (!this.isPublic && !isAdmin) return;
 
                         if (cmd.startsWith('.')) {
                             const commandName = cmd.slice(1).split(' ')[0];
                             const isFilesCmd = commandName === 'file' || commandName === 'more';
                             const fpublicEnabled = botData.fpublic[this.userId] !== false;
 
+                            const OWNER_ONLY_CMDS = new Set([
+                                'addban','removeban','setname'
+                            ]);
+
                             const ADMIN_ONLY_CMDS = new Set([
                                 'antilink','anticall','antidelete','autostatus','kick','private','public',
-                                'hidetag','tagall','setname','kickoffline','antistatus','antisticker','antiword',
-                                'welcome','left','ban','unban','addban','removeban','warn','add','accept',
-                                'open','close','autoread'
+                                'hidetag','tagall','kickoffline','antistatus','antisticker','antiword',
+                                'welcome','left','ban','unban','warn','add','accept',
+                                'open','close','autoread','fpublic'
                             ]);
 
-                            const GENERAL_CMDS_ALLOWED_FOR_MEMBERS = new Set([
-                                'file','more','stats','ping','dp','owner','hm','ai','gsearch','groupinfo','mymenu','menu'
-                            ]);
+                            if (isOwner) {
+                                /* SUPER OWNER: Always bypass, every command allowed. */
+                            } else if (isGroupAdmin && !isOwner) {
+                                /* Group Admin: everything except OWNER_ONLY_CMDS (which need super-owner). */
+                                if (OWNER_ONLY_CMDS.has(commandName)) return;
+                            } else {
+                                /* ============= GROUP MEMBER (NOT ADMIN) ============= */
 
-                            if (!isOwner && !isAdmin) {
-                                if (this.isPublic) {
-                                    if (ADMIN_ONLY_CMDS.has(commandName)) return;
-                                    if (!isFilesCmd && !GENERAL_CMDS_ALLOWED_FOR_MEMBERS.has(commandName)) return;
-                                } else {
+                                /* Priority 1: FPUBLIC = ONLY files .file / .more. Block everything else. */
+                                if (fpublicEnabled) {
                                     if (!isFilesCmd) return;
-                                    if (isFilesCmd && !fpublicEnabled) return;
+                                } else {
+                                    /* Priority 2: Mode check. If private mode, nothing allowed (already handled above by !isPublic && !isAdmin return, but extra safety). */
+                                    if (!this.isPublic) return;
+                                    /* Public mode: general cmds OK, but ADMIN-only cmds block. */
+                                    if (ADMIN_ONLY_CMDS.has(commandName)) return;
+                                    if (OWNER_ONLY_CMDS.has(commandName)) return;
                                 }
-                            } else if (isAdmin && !isOwner) {
-                                /* Group admins get full access in both public & private mode (same as owner). */
                             }
 
                             (async () => {
@@ -529,13 +545,13 @@ _| Developed By ~MarsXKami~_`;
                                         case 'autostatus': await commands.autostatus(this.sock, from, msg, isAdmin, botData, saveBotData, this.userId, args); break;
                                         case 'kick': await commands.kick(this.sock, from, msg, isAdmin); break;
                                         case 'private': 
-                                            await commands.private(this.sock, from, msg, isAdmin, this); 
+                                            await commands.private(this.sock, from, msg, isAdmin, this, isOwner); 
                                             if (!botData.statusSettings[this.userId]) botData.statusSettings[this.userId] = {};
                                             botData.statusSettings[this.userId].isPublic = false;
                                             saveBotData();
                                             break;
                                         case 'public': 
-                                            await commands.public(this.sock, from, msg, isAdmin, this); 
+                                            await commands.public(this.sock, from, msg, isAdmin, this, isOwner); 
                                             if (!botData.statusSettings[this.userId]) botData.statusSettings[this.userId] = {};
                                             botData.statusSettings[this.userId].isPublic = true;
                                             saveBotData();
@@ -561,8 +577,8 @@ _| Developed By ~MarsXKami~_`;
                                         case 'add': await commands.add(this.sock, from, msg, isAdmin); break;
                                         case 'unban': await commands.unban(this.sock, from, msg, isAdmin, botData, saveBotData); break;
                                         case 'fpublic':
-                                            if (!isAdmin) {
-                                                await this.sock.sendMessage(from, { text: '❌ Sirf admin/owner is command ko use kar sakta hai.' }, { quoted: msg });
+                                            if (!isOwner) {
+                                                await this.sock.sendMessage(from, { text: '❌ Sirf bot ka malik (Owner) is command ko use kar sakta hai.' }, { quoted: msg });
                                                 break;
                                             }
                                             if (!botData.fpublic) botData.fpublic = {};
@@ -573,7 +589,11 @@ _| Developed By ~MarsXKami~_`;
                                             else botData.fpublic[this.userId] = !(botData.fpublic[this.userId] !== false);
                                             saveBotData();
                                             const newState = botData.fpublic[this.userId] !== false;
-                                            await this.sock.sendMessage(from, { text: `📂 Files feature (file/more) ab ${newState ? '✅ PUBLIC' : '🔒 ADMIN-ONLY'} hai.\n\nPublic = sab group members use kar sakte hain\nAdmin-only = sirf admin/owner kar sakte hain\n\nToggle karne ke liye bas \`.fpublic\` ya \`.fpublic on/off\` use karein.` }, { quoted: msg });
+                                            await this.sock.sendMessage(from, {
+                                                text: newState
+                                                    ? "📂 **FPUBLIC** ab ✅ **ON** hai.\n\n👉 Is mode mein: **GROUP MEMBERS ko SIRF `.file` / `.more` (Sirf Google Drive files)** ka access hoga — baaki SAB commands (ai/ping/stats/dp/hm/etc) BLOCK ho jayenge.\n\nPrivate / Public mode ka koi farq nahi padega — members ke liye sab pehle FPUBLIC check hoga."
+                                                    : "🔒 **FPUBLIC** ab ❌ **OFF** hai.\n\n👉 Members ke liye ab normal Public / Private mode rules apply honge:\n   • Public: Members = General cmds allowed (ai/stats/ping/file/more etc)\n   • Private: Members = Kuch bhi nahi, blocked."
+                                            }, { quoted: msg });
                                             break;
                                         case 'file': await commands.file(this.sock, from, msg, q); break;
                                         case 'more': await commands.more(this.sock, from, msg); break;
