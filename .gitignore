@@ -11,6 +11,13 @@ yarn-error.log*
 config/service-account.json
 config/*.json
 
+# ── AWS SSH Keys (NEVER PUSH!) ─────────────────────────────
+*.pem
+*.ppk
+kami-bot*.pem
+nina*.pem
+mykey*.pem
+
 # ── WhatsApp Baileys Session (auth data) ──────────────────
 # ⚠️  These are tied to the machine. If you re-deploy fresh,
 #     you will need to scan the QR code again from panel.

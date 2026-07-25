@@ -426,15 +426,34 @@ class BotSession {
                             }
                         }
 
-                        if (!this.isPublic && !isOwner) return;
+                        if (!this.isPublic && !isOwner && !isAdmin) return;
 
                         if (cmd.startsWith('.')) {
                             const commandName = cmd.slice(1).split(' ')[0];
                             const isFilesCmd = commandName === 'file' || commandName === 'more';
                             const fpublicEnabled = botData.fpublic[this.userId] !== false;
+
+                            const ADMIN_ONLY_CMDS = new Set([
+                                'antilink','anticall','antidelete','autostatus','kick','private','public',
+                                'hidetag','tagall','setname','kickoffline','antistatus','antisticker','antiword',
+                                'welcome','left','ban','unban','addban','removeban','warn','add','accept',
+                                'open','close','autoread'
+                            ]);
+
+                            const GENERAL_CMDS_ALLOWED_FOR_MEMBERS = new Set([
+                                'file','more','stats','ping','dp','owner','hm','ai','gsearch','groupinfo','mymenu','menu'
+                            ]);
+
                             if (!isOwner && !isAdmin) {
-                                if (!isFilesCmd) return;
-                                if (isFilesCmd && !fpublicEnabled) return;
+                                if (this.isPublic) {
+                                    if (ADMIN_ONLY_CMDS.has(commandName)) return;
+                                    if (!isFilesCmd && !GENERAL_CMDS_ALLOWED_FOR_MEMBERS.has(commandName)) return;
+                                } else {
+                                    if (!isFilesCmd) return;
+                                    if (isFilesCmd && !fpublicEnabled) return;
+                                }
+                            } else if (isAdmin && !isOwner) {
+                                /* Group admins get full access in both public & private mode (same as owner). */
                             }
 
                             (async () => {
