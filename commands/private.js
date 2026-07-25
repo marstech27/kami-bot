@@ -1,8 +1,19 @@
 async function privateCommand(sock, from, msg, isAdmin, session, isOwner) {
-    if (!isOwner) return await sock.sendMessage(from, { text: "❌ Sirf bot ka malik (Owner) is command ko use kar sakta hai." }, { quoted: msg });
+    if (!isOwner) return await sock.sendMessage(from, { text: "❌ Sirf bot ka malik (Owner) ye command use kar sakta hai." }, { quoted: msg });
 
     session.isPublic = false;
-    await sock.sendMessage(from, { text: "🔐 Bot ab PRIVATE mode mein hai.\n\n✅ OWNER: Sab kuch har waqt\n✅ GROUP ADMINS: Sab commands (files + ai + admin actions etc)\n❌ GROUP MEMBERS: Kuch bhi nahi, blocked.\n\n⚠️ FPUBLIC ON raha to members ko SIRF .file/.more ka access rahega (baaki sab private mein bhi block)." }, { quoted: msg });
+    await sock.sendMessage(from, {
+        text:
+`🔒 **PRIVATE MODE** = ✅ ON
+
+▫️ **GROUP MEMBERS (non-admin):** Kuch bhi nahi use kar sakty — bilkul blocked.
+
+▫️ **GROUP ADMINS:** Access ye controls depend karta **.admin** toggle par:
+   • .admin ON → Sab allowed
+   • .admin OFF → Members jitna hi (sirf Public mode mein General commands + FPUBLIC on ho to files)
+
+▫️ **OWNER (923186029085):** Hamesha sab kuch, koi restriction nahi.`
+    }, { quoted: msg });
 }
 
 module.exports = privateCommand;

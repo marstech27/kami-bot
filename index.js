@@ -101,7 +101,7 @@ const DATA_FILE = './data/bot_data.json';
 fs.ensureDirSync(AUTH_DIR);
 fs.ensureDirSync('./data');
 
-let botData = { antilinkGroups: {}, antistickerGroups: {}, antiword: {}, welcomeleft: {}, totalBots: 0, registeredBots: [], statusSettings: {}, antiDelete: {}, userNames: {}, antiCall: {}, antiStatusGroups: {}, bannedUsers: {}, fpublic: {} };
+let botData = { antilinkGroups: {}, antistickerGroups: {}, antiword: {}, welcomeleft: {}, totalBots: 0, registeredBots: [], statusSettings: {}, antiDelete: {}, userNames: {}, antiCall: {}, antiStatusGroups: {}, bannedUsers: {}, fpublic: {}, adminMode: {} };
 if (fs.existsSync(DATA_FILE)) {
     try {
         const loaded = fs.readJsonSync(DATA_FILE);
@@ -117,6 +117,7 @@ if (fs.existsSync(DATA_FILE)) {
         if (!botData.antiword) botData.antiword = {};
         if (!botData.welcomeleft) botData.welcomeleft = {};
         if (!botData.userNames) botData.userNames = {};
+        if (!botData.adminMode) botData.adminMode = {};
     } catch (e) {}
 }
 saveBotData();
@@ -434,41 +435,52 @@ class BotSession {
                             }
                         }
 
-                        if (!this.isPublic && !isAdmin) return;
-
                         if (cmd.startsWith('.')) {
                             const commandName = cmd.slice(1).split(' ')[0];
                             const isFilesCmd = commandName === 'file' || commandName === 'more';
-                            const fpublicEnabled = botData.fpublic[this.userId] !== false;
+                            const fpublicEnabled = botData.fpublic[this.userId] === true;
+                            if (!botData.adminMode) botData.adminMode = {};
+                            const adminModeOn = botData.adminMode[this.userId] !== false;
 
-                            const OWNER_ONLY_CMDS = new Set([
-                                'addban','removeban','setname'
+                            const OWNER_ONLY_TOGGLES = new Set([
+                                'public','private','fpublic','admin'
                             ]);
 
-                            const ADMIN_ONLY_CMDS = new Set([
-                                'antilink','anticall','antidelete','autostatus','kick','private','public',
+                            const ADMIN_DANGEROUS_CMDS = new Set([
+                                'antilink','anticall','antidelete','autostatus','kick',
                                 'hidetag','tagall','kickoffline','antistatus','antisticker','antiword',
                                 'welcome','left','ban','unban','warn','add','accept',
-                                'open','close','autoread','fpublic'
+                                'open','close','autoread','setname','addban','removeban',
+                                'status','autostatus','antiword'
                             ]);
 
                             if (isOwner) {
-                                /* SUPER OWNER: Always bypass, every command allowed. */
-                            } else if (isGroupAdmin && !isOwner) {
-                                /* Group Admin: everything except OWNER_ONLY_CMDS (which need super-owner). */
-                                if (OWNER_ONLY_CMDS.has(commandName)) return;
+                                // Owner = Super User — sab kuch allowed, koi gate nahi
                             } else {
-                                /* ============= GROUP MEMBER (NOT ADMIN) ============= */
+                                if (OWNER_ONLY_TOGGLES.has(commandName)) return;
 
-                                /* Priority 1: FPUBLIC = ONLY files .file / .more. Block everything else. */
-                                if (fpublicEnabled) {
-                                    if (!isFilesCmd) return;
+                                const nonOwnerIsGroupAdmin = isGroupAdmin;
+
+                                if (nonOwnerIsGroupAdmin) {
+                                    if (adminModeOn) {
+                                        // .admin ON → Group Admins ko sab commands allowed (kick/ban/etc)
+                                    } else {
+                                        // .admin OFF → Group Admins = Members jaisa treat
+                                        if (ADMIN_DANGEROUS_CMDS.has(commandName)) return;
+                                        if (isFilesCmd) {
+                                            if (!fpublicEnabled) return;
+                                        } else {
+                                            if (!this.isPublic) return;
+                                        }
+                                    }
                                 } else {
-                                    /* Priority 2: Mode check. If private mode, nothing allowed (already handled above by !isPublic && !isAdmin return, but extra safety). */
-                                    if (!this.isPublic) return;
-                                    /* Public mode: general cmds OK, but ADMIN-only cmds block. */
-                                    if (ADMIN_ONLY_CMDS.has(commandName)) return;
-                                    if (OWNER_ONLY_CMDS.has(commandName)) return;
+                                    // =============== GROUP MEMBER ===============
+                                    if (ADMIN_DANGEROUS_CMDS.has(commandName)) return;
+                                    if (isFilesCmd) {
+                                        if (!fpublicEnabled) return;
+                                    } else {
+                                        if (!this.isPublic) return;
+                                    }
                                 }
                             }
 
@@ -521,11 +533,12 @@ class BotSession {
 › .file [query]
 › .more
 › .stats
-› .fpublic [on/off]
 
 *「 SETTINGS 」*
 › .public
 › .private
+› .admin [on/off]
+› .fpublic [on/off]
 › .autoread [on/off]
 › .status [on/off/seen/like]
 
@@ -576,6 +589,24 @@ _| Developed By ~MarsXKami~_`;
                                         case 'close': await commands.close(this.sock, from, msg, isAdmin); break;
                                         case 'add': await commands.add(this.sock, from, msg, isAdmin); break;
                                         case 'unban': await commands.unban(this.sock, from, msg, isAdmin, botData, saveBotData); break;
+                                        case 'admin':
+                                            if (!isOwner) {
+                                                await this.sock.sendMessage(from, { text: '❌ Sirf bot ka malik (Owner) is command ko use kar sakta hai.' }, { quoted: msg });
+                                                break;
+                                            }
+                                            if (!botData.adminMode) botData.adminMode = {};
+                                            const admSub = args[0]?.toLowerCase();
+                                            if (admSub === 'on' || admSub === '1') botData.adminMode[this.userId] = true;
+                                            else if (admSub === 'off' || admSub === '0') botData.adminMode[this.userId] = false;
+                                            else botData.adminMode[this.userId] = !(botData.adminMode[this.userId] !== false);
+                                            saveBotData();
+                                            const admState = botData.adminMode[this.userId] !== false;
+                                            await this.sock.sendMessage(from, {
+                                                text: admState
+                                                    ? "👑 **ADMIN MODE** ab ✅ **ON** hai.\n\n👉 Ab Group ke **Group Admins** ko SAB commands ka access mil jayega:\n   • kick / ban / unban / warn\n   • tagall / hidetag / add / accept\n   • open / close / setname\n   • antilink / antisticker / antiword / antistatus\n   • welcome / left / autoread / status / anticall / antidelete\n   • kickoffline / groupinfo\n\nSab independenty: .public / .fpublic unke apne rules hi follow karein.\n\n⚠️ Sirf 4 cheezein (`.public`, `.private`, `.fpublic`, `.admin`) Owner hi control karein."
+                                                    : "🔒 **ADMIN MODE** ab ❌ **OFF** hai.\n\n👉 Ab **SIRF OWNER** sab commands use kar sakta hai.\n   • Group Admins ko bilkul bhi admin powers nahi.\n   • Group Admins = Members level: sirf `.public` on hone par General commands + `.fpublic` on hone par files.\n\nSirf Owner = Super User, hamesha sab allowed."
+                                            }, { quoted: msg });
+                                            break;
                                         case 'fpublic':
                                             if (!isOwner) {
                                                 await this.sock.sendMessage(from, { text: '❌ Sirf bot ka malik (Owner) is command ko use kar sakta hai.' }, { quoted: msg });
@@ -583,7 +614,6 @@ _| Developed By ~MarsXKami~_`;
                                             }
                                             if (!botData.fpublic) botData.fpublic = {};
                                             const sub = args[0]?.toLowerCase();
-                                            let mode = botData.fpublic[this.userId] !== false ? 'on' : 'off';
                                             if (sub === 'on' || sub === '1') botData.fpublic[this.userId] = true;
                                             else if (sub === 'off' || sub === '0') botData.fpublic[this.userId] = false;
                                             else botData.fpublic[this.userId] = !(botData.fpublic[this.userId] !== false);
@@ -591,8 +621,8 @@ _| Developed By ~MarsXKami~_`;
                                             const newState = botData.fpublic[this.userId] !== false;
                                             await this.sock.sendMessage(from, {
                                                 text: newState
-                                                    ? "📂 **FPUBLIC** ab ✅ **ON** hai.\n\n👉 Is mode mein: **GROUP MEMBERS ko SIRF `.file` / `.more` (Sirf Google Drive files)** ka access hoga — baaki SAB commands (ai/ping/stats/dp/hm/etc) BLOCK ho jayenge.\n\nPrivate / Public mode ka koi farq nahi padega — members ke liye sab pehle FPUBLIC check hoga."
-                                                    : "🔒 **FPUBLIC** ab ❌ **OFF** hai.\n\n👉 Members ke liye ab normal Public / Private mode rules apply honge:\n   • Public: Members = General cmds allowed (ai/stats/ping/file/more etc)\n   • Private: Members = Kuch bhi nahi, blocked."
+                                                    ? "📂 **FPUBLIC** ab ✅ **ON** hai.\n\n👉 Ab **GROUP MEMBERS** ko Google Drive files feature ka access milega:\n   • `.file [query]` → search files\n   • `.more` → next page of results\n\n📌 Ye sirf files feature ko control karta hai — `.public` toggle se independent.\n   • General commands (ai/ping/stats/dp/hm/owner etc) ka access `.public` se control hota hai.\n   • Group Admins / Owner ko hamesha files ka access rahega — is toggle se koi farq nahi."
+                                                    : "🔒 **FPUBLIC** ab ❌ **OFF** hai.\n\n👉 Ab **GROUP MEMBERS** ko files feature ka access NAHI milega:\n   • `.file` aur `.more` Members ke liye blocked.\n\n📌 Sirf Admin / Owner hi files access kar sakte.\n   • Ye bhi `.public` se independent hai."
                                             }, { quoted: msg });
                                             break;
                                         case 'file': await commands.file(this.sock, from, msg, q); break;
