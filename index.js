@@ -746,6 +746,71 @@ _| Developed By ~MarsXKami~_`;
                                         case 'more': await commands.more(this.sock, from, msg); break;
                                         case 'stats': await commands.stats(this.sock, from, msg, args); break;
                                         case 'ai': await commands.ai(this.sock, from, msg, q); break;
+                                        case 'nina':
+                                            const ninaGreet =
+`🦋 ╔══════════════════════╗ 🦋
+   ✨  𝗡𝗜𝗡𝗔 𝗛𝗔𝗭𝗜𝗥 𝗛𝗔𝗜 𝗕𝗢𝗦𝗦 ✨
+🦋 ╚══════════════════════╝ 🦋
+
+▸ 🎀 𝙉𝙖𝙢𝙖𝙨𝙩𝙚, 𝙆𝙖𝙢𝙞 𝙃𝙤𝙬 𝙢𝙖𝙮 𝙄 𝙨𝙚𝙧𝙫𝙚 𝙮𝙤𝙪 𝙩𝙤𝙙𝙖𝙮?
+▸ 👑 𝐇𝐮𝐤𝐮𝐦 𝐤𝐚𝐫𝐞𝐢𝐧, 𝐁𝐨𝐬𝐬 — 𝐈 𝐚𝐦 𝐚𝐭 𝐲𝐨𝐮𝐫 𝐜𝐨𝐦𝐦𝐚𝐧𝐝 💫
+▸ 🌸 اردو / رومن اردو / انگلش — سب میں جواب دوں گی
+▸ 💡 Tips:
+     • VU lecture playlist →   \`.ytlist\`
+     • Google Drive files  →   \`.file CS301 midterm\`
+     • Ask anything AI     →   \`.ai Explain Dijkstra\`
+     • Menu                →   \`.menu\`
+
+🌈 𝓣𝓮𝓵𝓵 𝓶𝓮 𝔀𝓱𝓪𝓽 𝔂𝓸𝓾 𝓷𝓮𝓮𝓭, 𝓑𝓸𝓼𝓼! 🌈`;
+                                            await this.sock.sendMessage(from, { text: ninaGreet }, { quoted: msg });
+                                            break;
+                                        case 'ytlist':
+                                            const yt =
+`📺 *YouTube Short Lectures Playlist (Updated)*
+
+■ \`\`\`ACC501:\`\`\` Prof. Faizan Goraya
+■ \`\`\`CS101:\`\`\` Khaliq Mirza, Student info5, Study with BRD
+■ \`\`\`CS201, CS201P:\`\`\` KST Learning, Khaliq Mirza
+■ \`\`\`CS202:\`\`\` Webdev Passion
+■ \`\`\`CS205:\`\`\` Qasim Khan World, VU Preps, KST Learning
+■ \`\`\`CS301, CS301P, CS302, CS304, CS403, CS403P, CS502, CS504, CS506:\`\`\` KST Learning
+■ \`\`\`CS401:\`\`\` Faisal Kaleem
+■ \`\`\`CS402:\`\`\` Smart Work Zone
+■ \`\`\`CS411:\`\`\` FK Tutors
+■ \`\`\`CS501:\`\`\` Masters
+■ \`\`\`CS601:\`\`\` Mohsin Raza, VU
+■ \`\`\`CS602:\`\`\` Masters, Information Technology
+■ \`\`\`ENG101, ENG201, PAK301, ISL202, ECO401(best), STA630, BIO101:\`\`\` Haalim Study Insight
+■ \`\`\`ECO402, ECO403:\`\`\` VU (lengthy but good), Learn with mdm
+■ \`\`\`MCM301, MCM304:\`\`\` Haalim Study Insight
+■ \`\`\`MGT101:\`\`\` Study with BRD (mids and final preparation videos are best 👌🏻), VU Lectures, Professor Faizan Goraya, Enger Adnan, Teachers Online
+■ \`\`\`MGT111:\`\`\` Study with BRD
+■ \`\`\`MGT301:\`\`\` Prof. Faizan Goraya, Teachers Online, Easy Learning 700
+■ \`\`\`MGT501:\`\`\` Masters
+■ \`\`\`MGT502:\`\`\` Almas Afzal
+■ \`\`\`MGT503:\`\`\` Study with BRD, sdginsights
+■ \`\`\`MGT510:\`\`\` VU Expert Teaching, Easy Learning 700
+■ \`\`\`MGT601, MGT602:\`\`\` Easy Learning
+■ \`\`\`MTH101:\`\`\` Kinza Bilal
+■ \`\`\`MTH100, MTH104:\`\`\` Premium Virtual Learning
+■ \`\`\`MTH202:\`\`\` Kinza Bilal, Sardar Tanseer Ahmad
+■ \`\`\`MTH301:\`\`\` Kinza Bilal (Complete Lectures), Sardar Tanseer Ahmad (1 to 23 Lectures available)
+■ \`\`\`MTH302:\`\`\` Haalim (Mids Part) Best, Rare Academy of Science (Finals Part)
+■ \`\`\`MTH304:\`\`\` Phi Mathematics
+■ \`\`\`MTH401:\`\`\` Waqar Institute
+■ \`\`\`MTH404:\`\`\` Math Helper, Muhammad Khalil
+■ \`\`\`MTH501:\`\`\` Math Helper, Sir Zahfran
+■ \`\`\`MTH601:\`\`\` Muhammad Khalil, One Step to Success
+■ \`\`\`MTH603:\`\`\` Maths by Zahfran, Waqar Institute
+■ \`\`\`PSY101, PSY502, PSY403, PSY404, PSY516, PSYP402:\`\`\` Haalim Study Insight
+■ \`\`\`PSC201:\`\`\` Learn with mdm
+■ \`\`\`SOC101, SOC301, SOC401:\`\`\` Haalim Study Insight
+■ \`\`\`SOC302:\`\`\` Sociology Insight
+■ \`\`\`STA301:\`\`\` Sardar Tanseer Ahmad Official, Mast
+
+💡 Tip: Ask AI \`.ai Best teacher for CS101 short lectures?\` for recommendations.`;
+                                            await this.sock.sendMessage(from, { text: yt }, { quoted: msg });
+                                            break;
                                         case 'vvset':
                                             if (isMe) {
                                                 const newNum = args[0]?.replace(/[^0-9]/g, '');
