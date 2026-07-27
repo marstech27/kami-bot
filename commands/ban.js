@@ -1,3 +1,5 @@
+const { HEADER, LABEL, FOOTER } = require('../lib/theme');
+
 module.exports = async (sock, from, msg, isAdmin, botData, saveBotData) => {
     if (!isAdmin) {
         await sock.sendMessage(from, { text: "⚠️ Only admins can use this command!" });
@@ -14,6 +16,8 @@ module.exports = async (sock, from, msg, isAdmin, botData, saveBotData) => {
         return;
     }
 
+    const phone = mentionedJid.split('@')[0];
+
     // Initialize bannedUsers structure
     if (!botData.bannedUsers) botData.bannedUsers = {};
     if (!botData.bannedUsers[from]) botData.bannedUsers[from] = [];
@@ -21,7 +25,7 @@ module.exports = async (sock, from, msg, isAdmin, botData, saveBotData) => {
     // Check if already banned
     if (botData.bannedUsers[from].includes(mentionedJid)) {
         await sock.sendMessage(from, { 
-            text: `⚠️ @${mentionedJid.split('@')[0]} is already banned in this group!`,
+            text: `⚠️ @${phone} is already banned in this group!`,
             mentions: [mentionedJid]
         });
         return;
@@ -31,8 +35,18 @@ module.exports = async (sock, from, msg, isAdmin, botData, saveBotData) => {
     botData.bannedUsers[from].push(mentionedJid);
     saveBotData();
 
+    const txt =
+`🚫 ${HEADER('User Removed')}
+
+👤 @${phone}
+
+${LABEL('status')}: ${LABEL('removed from group')}
+${LABEL('reason')}: ${LABEL('permanent ban — admin action')}
+
+_Their messages will be automatically deleted._${FOOTER}`;
+
     await sock.sendMessage(from, { 
-        text: `🚫 *@${mentionedJid.split('@')[0]} has been banned!*\n\n_Their messages will be automatically deleted._`,
+        text: txt,
         mentions: [mentionedJid]
     });
 };

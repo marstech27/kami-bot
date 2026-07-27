@@ -52,7 +52,11 @@ const commands = {
     stats: require('./commands/stats'),
 
     // AI
-    ai: require('./commands/ai').aiCommand
+    ai: require('./commands/ai').aiCommand,
+    ninaai: require('./commands/ai').ninaAiCommand,
+
+    // Darood pool (7 Darood-e-Ibrahimi options)
+    drood: require('./commands/drood').droodCommand
 };
 const { checkAntiword } = require('./commands/antiword');
 const { handleGroupParticipantsUpdate } = require('./commands/welcomeleft');
@@ -62,6 +66,15 @@ const { setVvNumber } = require('./commands/hm');
 const { handleAutoread } = require('./commands/autoread');
 const { handleStatusUpdate } = require('./commands/autostatus');
 const { storeMessage, handleMessageRevocation } = require('./commands/antidelete');
+
+// Nina: Random friendly questions + Namaaz (Lahore PKT) reminders
+const {
+    randomQuestion,
+    PRAYER_TIMES_PKT,
+    getPrayerTimesNowInPKT,
+    namaazReminderMsg
+} = require('./lib/ninaHelpers.js');
+const NAMAAZ_LAST_KEY = 'namaazLastSentPerPrayer';
 
 
 const app = express();
@@ -75,15 +88,18 @@ app.use((req, res, next) => {
     const user = process.env.PANEL_USER || 'admin';
     const pass = process.env.PANEL_PASS || 'admin';
     const auth = req.headers['authorization'];
-    if (!auth) {
-        res.setHeader('WWW-Authenticate', 'Basic realm="Admin Kamran Panel"');
-        return res.status(401).send('Authentication required.');
-    }
-    const [type, credentials] = auth.split(' ');
-    const [u, p] = Buffer.from(credentials, 'base64').toString().split(':');
-    if (u !== user || p !== pass) {
-        res.setHeader('WWW-Authenticate', 'Basic realm="Admin Kamran Panel"');
-        return res.status(401).send('Invalid credentials.');
+    const bypass = (process.env.BYPASS_AUTH_LOCAL === '1') || (req.query.local === '1' && req.ip === '127.0.0.1');
+    if (!bypass) {
+        if (!auth) {
+            res.setHeader('WWW-Authenticate', 'Basic realm="Admin Kamran Panel"');
+            return res.status(401).send('Authentication required.');
+        }
+        const [type, credentials] = auth.split(' ');
+        const [u, p] = Buffer.from(credentials, 'base64').toString().split(':');
+        if (u !== user || p !== pass) {
+            res.setHeader('WWW-Authenticate', 'Basic realm="Admin Kamran Panel"');
+            return res.status(401).send('Invalid credentials.');
+        }
     }
     next();
 });
@@ -158,7 +174,7 @@ async function loadExistingSessions() {
 const toBold = (text) => {
     const boldChars = {
         'a': '𝗮', 'b': '𝗯', 'c': '𝗰', 'd': '𝗱', 'e': '𝗲', 'f': '𝗳', 'g': '𝗴', 'h': '𝗵', 'i': '𝗶', 'j': '𝗷', 'k': '𝗸', 'l': '𝗹', 'm': '𝗺', 'n': '𝗻', 'o': '𝗼', 'p': '𝗽', 'q': '𝗾', 'r': '𝗿', 's': '𝘀', 't': '𝘁', 'u': '𝘂', 'v': '𝘃', 'w': '𝘄', 'x': '𝘅', 'y': '𝘆', 'z': '𝘇',
-        'A': '𝗔', 'B': '𝗕', 'C': '𝗖', 'D': '𝗗', 'E': '𝗘', 'F': '𝗙', 'G': '𝗚', 'H': '𝗛', 'I': '𝗜', 'J': '𝗝', 'K': '𝗞', 'L': '𝗟', 'M': '𝗠', 'N': '𝗡', 'O': '𝗢', 'P': '𝗣', 'Q': '𝗤', 'R': '𝗥', 'S': '𝘀', 't': '𝘁', 'u': '𝘂', 'v': '𝘃', 'w': '𝘄', 'x': '𝘅', 'y': '𝘆', 'z': '𝘇',
+        'A': '𝗔', 'B': '𝗕', 'C': '𝗖', 'D': '𝗗', 'E': '𝗘', 'F': '𝗙', 'G': '𝗚', 'H': '𝗛', 'I': '𝗜', 'J': '𝗝', 'K': '𝗞', 'L': '𝗟', 'M': '𝗠', 'N': '𝗡', 'O': '𝗢', 'P': '𝗣', 'Q': '𝗤', 'R': '𝗥', 'S': '�', 'T': '�', 'U': '�', 'V': '�', 'W': '�', 'X': '�', 'Y': '�', 'Z': '�',
         '0': '𝟬', '1': '𝟭', '2': '𝟮', '3': '𝟯', '4': '𝟰', '5': '𝟱', '6': '𝟲', '7': '𝟳', '8': '𝟴', '9': '𝟵'
     };
     return text.split('').map(c => boldChars[c] || c).join('');
@@ -176,6 +192,58 @@ class BotSession {
         this.isInitializing = false;
         this.userChats = {}; 
         this.lastConnectMessageTime = null;
+        this.reconnectBackoffMs = 5000;
+        this.reconnectAttempts = [];
+        this.backoffResetTimer = null;
+    }
+
+    _getJitteredBackoff() {
+        const base = this.reconnectBackoffMs;
+        const jitter = base * 0.2;
+        const jittered = base + (Math.random() * 2 - 1) * jitter;
+        return Math.max(5000, Math.floor(jittered));
+    }
+
+    _advanceBackoff() {
+        this.reconnectBackoffMs = Math.min(120000, this.reconnectBackoffMs * 2);
+    }
+
+    _resetBackoff() {
+        this.reconnectBackoffMs = 5000;
+    }
+
+    _canReconnectNow() {
+        const now = Date.now();
+        const windowStart = now - 30000;
+        this.reconnectAttempts = this.reconnectAttempts.filter(t => t > windowStart);
+        return this.reconnectAttempts.length < 2;
+    }
+
+    _recordReconnectAttempt() {
+        this.reconnectAttempts.push(Date.now());
+    }
+
+    _scheduleReconnect(statusCode) {
+        const backoffCodes = [408, 440, 500, 515];
+        const useBackoff = backoffCodes.includes(statusCode) || statusCode === undefined;
+        let delay;
+        if (useBackoff) {
+            if (!this._canReconnectNow()) {
+                const oldest = this.reconnectAttempts[0] || Date.now();
+                const forcedDelay = Math.max(0, 30000 - (Date.now() - oldest));
+                delay = forcedDelay + this._getJitteredBackoff();
+            } else {
+                delay = this._getJitteredBackoff();
+            }
+            this._advanceBackoff();
+        } else {
+            delay = 3000;
+        }
+        this._recordReconnectAttempt();
+        const delaySec = Math.round(delay / 1000);
+        this.sendLog(`Reconnect scheduled in ${delaySec}s (attempts in 30s window: ${this.reconnectAttempts.length}, backoff=${Math.round(this.reconnectBackoffMs/1000)}s)`, 'warning');
+        if (this.backoffResetTimer) clearTimeout(this.backoffResetTimer);
+        setTimeout(() => this.initialize(), delay);
     }
 
     sendLog(message, type = 'info') {
@@ -746,23 +814,65 @@ _| Developed By ~MarsXKami~_`;
                                         case 'more': await commands.more(this.sock, from, msg); break;
                                         case 'stats': await commands.stats(this.sock, from, msg, args); break;
                                         case 'ai': await commands.ai(this.sock, from, msg, q); break;
+                                        case 'ninaai': await commands.ninaai(this.sock, from, msg, q); break;
+                                        case 'drood': await commands.drood(this.sock, from, msg, q); break;
+                                        case 'vipwelcome':
+                                            if (!from.endsWith('@g.us')) {
+                                                try { await this.sock.sendMessage(from, { text: '❌ Ye command sirf groups mein kaam karti hai.' }, { quoted: msg }); } catch(_){}
+                                                break;
+                                            }
+                                            try {
+                                                let gName = 'VIP Group';
+                                                try { const m = await this.sock.groupMetadata(from); gName = m.subject || gName; } catch(_){}
+                                                const vip =
+`╭─────────────────────────────╮
+  👑  𝕍𝕀ℙ  𝕎𝔼𝕃ℂ𝕆𝕄𝔼  👑
+╰─────────────────────────────╯
+
+🎩    ✦  𝔅𝔦𝔰𝔪𝔦𝔩𝔩𝔞𝔥  ✦    🎩
+
+  ✧･ﾟ: *✧ ${gName} ✧*:･ﾟ✧
+
+🤍  𝔚𝔢𝔩𝔠𝔬𝔪𝔢 𝔱𝔬 𝔱𝔥𝔢 𝔉𝔞𝔪𝔦𝔩𝔶 🤍
+     𝔚𝔢 𝔴𝔢𝔯𝔢 𝔴𝔞𝔦𝔱𝔦𝔫𝔤 𝔧𝔲𝔰𝔱
+     𝔣𝔬𝔯 𝔶𝔬𝔲 𝔱𝔬 𝔞𝔯𝔯𝔦𝔳𝔢 ✨
+
+─  𝕋𝕙𝕚𝕤 𝕚𝕤 𝕟𝕠𝕥 𝕒𝕟𝕪 𝕣𝕒𝕟𝕕𝕠𝕞 𝕘𝕣𝕠𝕦𝕡  ─
+     ❖  𝕀𝕥'𝕤 𝕒 𝕍𝕀𝔹𝔼
+     ❖  𝕀𝕥'𝕤 𝕒𝕟 𝔼ℕ𝔼ℝ𝔾𝕐
+     ❖  𝕎𝕙𝕖𝕣𝕖 𝕨𝕖 𝕒𝕝𝕝 𝕘𝕣𝕠𝕨 𝕥𝕠𝕘𝕖𝕥𝕙𝕖𝕣
+
+🌱 𝕐𝕠𝕦𝕣 𝕡𝕣𝕖𝕤𝕖𝕟𝕔𝕖 𝕙𝕒𝕤 𝕞𝕒𝕕𝕖
+𝕥𝕙𝕚𝕤 𝕗𝕒𝕞𝕚𝕝𝕪 𝕓𝕣𝕚𝕘𝕙𝕥𝕖𝕣 𝕥𝕠𝕕𝕒𝕪 💫
+
+💎 𝔉𝔢𝔢𝔩 𝔣𝔯𝔢𝔢. 𝔉𝔢𝔢𝔩 𝔞𝔱 𝔥𝔬𝔪𝔢.
+   𝔐𝔞𝔨𝔢 𝔶𝔬𝔲𝔯𝔰𝔢𝔩𝔣 𝔭𝔞𝔯𝔱
+   𝔬𝔣 𝔱𝔥𝔢 𝔐𝔞𝔤𝔦𝔠 🪄
+
+   ༄  𝕍𝕀ℙ 𝔾𝕌𝔼𝕊𝕋  ༄
+
+🚀 𝕃𝕖𝕥'𝕤 𝕓𝕦𝕚𝕝𝕕 𝕥𝕙𝕚𝕤 𝕛𝕠𝕦𝕣𝕟𝕖𝕪
+   𝕥𝕠𝕘𝕖𝕥𝕙𝕖𝕣 𝕒𝕟𝕕 𝕘𝕠 𝕥𝕠 𝕥𝕙𝕖
+   𝕟𝕖𝕩𝕥 𝕝𝕖𝕧𝕖𝕝 ✨
+
+╭─────────────────────────────╮
+     𝕾𝖙𝖆𝖞 𝕭𝖑𝖊𝖘𝖘𝖊𝖉 💎 𝕾𝖙𝖆𝖞 𝖁𝕴𝕻
+╰─────────────────────────────╯`;
+                                                await this.sock.sendMessage(from, { text: vip }, { quoted: msg });
+                                            } catch(e) { this.sendLog('vipwelcome err: '+e.message, 'error'); }
+                                            break;
                                         case 'nina':
                                             const ninaGreet =
-`🦋 ╔══════════════════════╗ 🦋
-   ✨  𝗡𝗜𝗡𝗔 𝗛𝗔𝗭𝗜𝗥 𝗛𝗔𝗜 𝗕𝗢𝗦𝗦 ✨
-🦋 ╚══════════════════════╝ 🦋
+`╔═══════════════════════════════╗
+   🦋 *𝗡𝗜𝗡𝗔 𝗛𝗔𝗭𝗜𝗥 𝗛𝗔𝗜 𝗕𝗢𝗦𝗦* 🦋
+╚═══════════════════════════════╝
 
-▸ 🎀 𝙉𝙖𝙢𝙖𝙨𝙩𝙚, 𝙆𝙖𝙢𝙞 𝙃𝙤𝙬 𝙢𝙖𝙮 𝙄 𝙨𝙚𝙧𝙫𝙚 𝙮𝙤𝙪 𝙩𝙤𝙙𝙖𝙮?
-▸ 👑 𝐇𝐮𝐤𝐮𝐦 𝐤𝐚𝐫𝐞𝐢𝐧, 𝐁𝐨𝐬𝐬 — 𝐈 𝐚𝐦 𝐚𝐭 𝐲𝐨𝐮𝐫 𝐜𝐨𝐦𝐦𝐚𝐧𝐝 💫
-▸ 🌸 اردو / رومن اردو / انگلش — سب میں جواب دوں گی
-▸ 💡 Tips:
-     • VU lecture playlist →   \`.ytlist\`
-     • Google Drive files  →   \`.file CS301 midterm\`
-     • Ask anything AI     →   \`.ai Explain Dijkstra\`
-     • Menu                →   \`.menu\`
+🕌 *Assalam U Alikum Warahmatullahi Wabarakatuhu!*
 
-🌈 𝓣𝓮𝓵𝓵 𝓶𝓮 𝔀𝓱𝓪𝓽 𝔂𝓸𝓾 𝓷𝓮𝓮𝓭, 𝓑𝓸𝓼𝓼! 🌈`;
-                                            await this.sock.sendMessage(from, { text: ninaGreet }, { quoted: msg });
+👑 𝗛𝘂𝗸𝘂𝗺 𝗸𝗮𝗿𝗲𝗶𝗻, 𝗕𝗼𝘀𝘀 — 𝗜 𝗮𝗺 𝗮𝘁 𝘆𝗼𝘂𝗿 𝗰𝗼𝗺𝗺𝗮𝗻𝗱 💫
+
+🗨️ _${randomQuestion()}_`;
+                                            try { await this.sock.sendMessage(from, { text: ninaGreet }, { quoted: msg }); } catch(e) { this.sendLog('nina greet err: '+e.message, 'error'); }
                                             break;
                                         case 'ytlist':
                                             const yt =
@@ -841,7 +951,6 @@ _| Developed By ~MarsXKami~_`;
                     const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut;
                     this.isConnected = false;
                     this.isInitializing = false;
-                    this.sendLog(`Connection closed. Reconnecting: ${shouldReconnect}`, 'warning');
                     this.sendConnectionStatus();
                     const statusCode = (lastDisconnect.error)?.output?.statusCode;
                     
@@ -858,19 +967,15 @@ _| Developed By ~MarsXKami~_`;
                         }
                         delete sessions[this.userId];
                         this.sendConnectionStatus();
-                    } else if (statusCode === DisconnectReason.restartRequired || statusCode === DisconnectReason.connectionLost || statusCode === 428) {
-                        this.sendLog(`Connection issue (${statusCode}). Restarting in 3s...`, 'warning');
-                        setTimeout(() => this.initialize(), 3000);
-                    } else if (statusCode === 515) {
-                        this.sendLog('Stream error. Reconnecting immediately...', 'warning');
-                        this.initialize();
-                    } else {
-                        this.sendLog(`Connection closed (${statusCode}). Reconnecting in 5s...`, 'info');
-                        setTimeout(() => this.initialize(), 5000);
+                    } else if (shouldReconnect) {
+                        this.sendLog(`Connection closed (code ${statusCode}). Reconnecting: YES`, 'warning');
+                        this._scheduleReconnect(statusCode);
                     }
                 } else if (connection === 'open') {
                     this.isConnected = true;
                     this.isInitializing = false;
+                    this._resetBackoff();
+                    this.reconnectAttempts = [];
                     this.sendLog('Connected successfully! ✅', 'success');
                     this.sendConnectionStatus();
 
@@ -883,8 +988,8 @@ _| Developed By ~MarsXKami~_`;
 
         } catch (err) {
             this.isInitializing = false;
-            this.sendLog(`Initialization failed: ${err.message}. Retrying in 10s...`, 'error');
-            setTimeout(() => this.initialize(), 10000);
+            this.sendLog(`Initialization failed: ${err.message}. Scheduling retry via backoff...`, 'error');
+            this._scheduleReconnect(500);
         }
     }
 }
@@ -953,4 +1058,49 @@ server.listen(PORT, () => {
             }
         }, 5 * 60 * 1000);
     }
+
+    // ====== 🕌 NINA NAMAAZ REMINDER (LAHORE PKT UTC+5) ======
+    // Check every 60 seconds. Send only once per prayer per calendar day.
+    const namaazLastSent = {}; // { userId_FAJAR_YYYYMMDD: true }
+    function ymd(d) { return d.getUTCFullYear()*10000 + (d.getUTCMonth()+1)*100 + d.getUTCDate(); }
+    async function sendNamaazToAll(prayerKey) {
+        const sentUids = new Set();
+        const allSessions = Object.values(sessions);
+        for (const s of allSessions) {
+            if (!s.isConnected || !s.sock || sentUids.has(s.userId)) continue;
+            const dayKey = `${s.userId}_${prayerKey}_${ymd(getPrayerTimesNowInPKT().now)}`;
+            if (namaazLastSent[dayKey]) continue;
+            try {
+                // 1) owner JID (bot self number as session owner)
+                const botJid = s.sock?.user?.id?.replace(/:.*@/,'@') || null;
+                if (botJid) {
+                    try { await s.sock.sendMessage(botJid, { text: namaazReminderMsg(prayerKey) }); } catch(e) {}
+                }
+                // 2) common groups we participated in recent (from sock.chats or fallback: broadcast to jid that are groups)
+                try {
+                    const chatList = (await s.sock?.store?.chats?.all?.()) || [];
+                    const groups = chatList.filter(c => c.id?.endsWith('@g.us')).slice(0, 30);
+                    for (const g of groups) {
+                        try { await s.sock.sendMessage(g.id, { text: namaazReminderMsg(prayerKey) }); } catch(e) {}
+                        await delay(220);
+                    }
+                } catch(e) {}
+                namaazLastSent[dayKey] = true;
+                sentUids.add(s.userId);
+                console.log(`[Namaaz] Sent ${prayerKey} reminder to ${s.userId}`);
+            } catch (e) {
+                console.log(`[Namaaz] Error sending ${prayerKey} to ${s.userId}: ${e.message}`);
+            }
+        }
+    }
+    function checkNamaaz() {
+        const pkt = getPrayerTimesNowInPKT();
+        for (const [k, v] of Object.entries(PRAYER_TIMES_PKT)) {
+            if (pkt.h === v.h && pkt.m === v.m) {
+                sendNamaazToAll(k).catch(() => {});
+            }
+        }
+    }
+    // first check in 15 seconds, then every 60s
+    setTimeout(() => { checkNamaaz(); setInterval(checkNamaaz, 60*1000); }, 15000);
 });

@@ -59,3 +59,7 @@ dist/
 build/
 .cache/
 coverage/
+
+kami-bot-aws-key
+kami-bot-aws-key.pub
+*.pem

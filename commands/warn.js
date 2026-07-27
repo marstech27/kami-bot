@@ -1,90 +1,58 @@
-const fs = require('fs-extra');
-const path = require('path');
-
-const WARN_FILE = path.join(__dirname, '../data/warnings.json');
-
-function loadWarnings() {
-    try {
-        if (fs.existsSync(WARN_FILE)) return fs.readJsonSync(WARN_FILE);
-    } catch (e) {}
-    return {};
-}
-
-function saveWarnings(data) {
-    fs.ensureDirSync(path.dirname(WARN_FILE));
-    fs.writeJsonSync(WARN_FILE, data);
-}
+const fs2 = require('fs-extra');
+const path2 = require('path');
+const { HEADER, LABEL } = require('../lib/theme');
+const WARN_FILE = path2.join(__dirname, '../data/warnings.json');
+function loadW() { try { if (fs2.existsSync(WARN_FILE)) return fs2.readJsonSync(WARN_FILE); } catch (e) {} return {}; }
+function saveW(d){ fs2.ensureDirSync(path2.dirname(WARN_FILE)); fs2.writeJsonSync(WARN_FILE, d); }
 
 module.exports = async (sock, from, msg, isAdmin) => {
-    if (!isAdmin) {
-        await sock.sendMessage(from, { text: '❌ Sirf admins yeh command use kar sakte hain!' }, { quoted: msg });
-        return;
-    }
-    if (!from.endsWith('@g.us')) {
-        await sock.sendMessage(from, { text: '❌ Yeh command sirf groups mein kaam karti hai!' }, { quoted: msg });
-        return;
-    }
+  if (!isAdmin) {
+    await sock.sendMessage(from, { text: `*Admin Only:* Sirf group admins ye command use kar sakte hain.` }, { quoted: msg });
+    return;
+  }
+  if (!from.endsWith('@g.us')) {
+    await sock.sendMessage(from, { text: `*Group Only:* Ye command sirf groups mein kaam karti hai.` }, { quoted: msg });
+    return;
+  }
+  const mentionedJid = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
+  if (!mentionedJid) {
+    await sock.sendMessage(from, { text: `⚠️ *Usage:* .warn @user\nKisi member ko mention karein.` }, { quoted: msg });
+    return;
+  }
+  const phone = mentionedJid.split('@')[0];
+  const db = loadW();
+  if (!db[mentionedJid]) db[mentionedJid] = 0;
+  db[mentionedJid]++;
+  saveW(db);
+  const count = db[mentionedJid];
+  let txt;
+  if (count === 1) {
+    txt = `⚠️ ${HEADER('Warning')}
 
-    const mentionedJid = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-    if (!mentionedJid) {
-        await sock.sendMessage(from, {
-            text: '⚠️ Kisi user ko mention karo warn karne ke liye!\nUsage: .warn @user'
-        }, { quoted: msg });
-        return;
-    }
+👤 @${phone}
 
-    const warnings = loadWarnings();
-    if (!warnings[from]) warnings[from] = {};
-    if (!warnings[from][mentionedJid]) warnings[from][mentionedJid] = 0;
+${LABEL('status')}: ${LABEL('warnings: 1/3')}
+${LABEL('status')}: ${LABEL('1st official warning')}
 
-    warnings[from][mentionedJid] += 1;
-    const count = warnings[from][mentionedJid];
-    saveWarnings(warnings);
+You have violated group rules. Repeated violations = ban.`;
+  } else if (count === 2) {
+    txt = `⚠️ ${HEADER('Final Warning')}
 
-    const stars = '⭐'.repeat(count) + '☆'.repeat(Math.max(0, 3 - count));
+👤 @${phone}
 
-    if (count >= 3) {
-        // 3rd warning - kick karo
-        warnings[from][mentionedJid] = 0;
-        saveWarnings(warnings);
+${LABEL('status')}: ${LABEL('warnings: 2/3')}
+${LABEL('status')}: ${LABEL('LAST warning — next = permanent ban')}
 
-        const kickMsg =
-`╭━━━〔 ⚠️ *FINAL WARNING* ⚠️ 〕━━━┈⊷
-┃
-┃ 🚨 @${mentionedJid.split('@')[0]}
-┃
-┃ Tumhe 3 baar warn kiya ja chuka hai.
-┃ Ab tumhe is group se remove
-┃ kiya ja raha hai! 🚪
-┃
-┃ ❌ Warnings: ${stars}
-┃ 📌 Rule todna allowed nahi hai.
-┃
-╰━━━━━━━━━━━━━━━━━━┈⊷`;
+This is your LAST warning. Next violation = permanent ban. No exceptions.`;
+  } else {
+    txt = `🚫 ${HEADER('Ban Triggered')}
 
-        await sock.sendMessage(from, { text: kickMsg, mentions: [mentionedJid] }, { quoted: msg });
-        try {
-            await sock.groupParticipantsUpdate(from, [mentionedJid], 'remove');
-        } catch (e) {
-            await sock.sendMessage(from, { text: '❌ Kick karne mein error aaya. Bot ko admin banao!' }, { quoted: msg });
-        }
-    } else {
-        const warnMsg =
-`╭━━━〔 ⚠️ *WARNING* 〕━━━┈⊷
-┃
-┃ 👤 @${mentionedJid.split('@')[0]}
-┃
-┃ Tumhe warn kiya gaya hai!
-┃ Meherbani karke group rules
-┃ follow karo. 🙏
-┃
-┃ ⚠️ Warnings: ${stars} (${count}/3)
-┃
-┃ 3 warnings par group se
-┃ remove kar diya jaega! 🚪
-┃
-╰━━━━━━━━━━━━━━━━━━┈⊷`;
+👤 @${phone}
 
-        await sock.sendMessage(from, { text: warnMsg, mentions: [mentionedJid] }, { quoted: msg });
-    }
+${LABEL('status')}: ${LABEL(`warnings: ${count}/3`)}
+${LABEL('status')}: ${LABEL('ban action triggered')}
+
+${count} warnings cross kar diye. Ab admin action lega.`;
+  }
+  await sock.sendMessage(from, { text: txt, mentions: [mentionedJid] }, { quoted: msg });
 };

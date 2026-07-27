@@ -1,0 +1,99 @@
+name: Deploy to AWS EC2 (CodeDeploy)
+
+# Trigger: Jab bhi `main` branch par push ho ya manual release
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ap-south-1      # 👈 Change to your region (mumbai = ap-south-1)
+  APPLICATION_NAME: kami-bot
+  DEPLOYMENT_GROUP: kami-bot-prod
+  S3_BUCKET: kami-bot-codedeploy-artifacts  # 👈 Change to a new bucket you create
+
+jobs:
+  build-and-deploy:
+    name: Build + Push Rev to S3 + CodeDeploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      # ────────────────────────────────────────────────────
+      # 1. Validate code (Node install + lint/syntax check)
+      # ────────────────────────────────────────────────────
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Syntax check all JS files
+        run: |
+          for f in $(find . -name '*.js' -not -path './node_modules/*' -not -path './auth_info/*'); do
+            node --check "$f" || exit 1
+          done
+          echo "✅ All JS syntax OK"
+
+      # ────────────────────────────────────────────────────
+      # 2. Configure AWS credentials
+      #    Store these 3 secrets in GitHub repo Settings → Secrets:
+      #      AWS_ACCESS_KEY_ID
+      #      AWS_SECRET_ACCESS_KEY
+      # ────────────────────────────────────────────────────
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ────────────────────────────────────────────────────
+      # 3. Zip source + upload to S3
+      # ────────────────────────────────────────────────────
+      - name: Package revision (zip)
+        run: |
+          ZIP_FILE="kami-bot-${GITHUB_SHA::7}.zip"
+          zip -r "$ZIP_FILE" . \
+            -x "*.git*" \
+            -x "node_modules/*" \
+            -x ".env" \
+            -x "config/service-account.json" \
+            -x "auth_info/*" \
+            -x ".drive_cache.json" \
+            -x "*.log" \
+            -x "logs/*"
+          echo "ZIP_FILE=$ZIP_FILE" >> $GITHUB_ENV
+          ls -lh "$ZIP_FILE"
+
+      - name: Upload revision to S3
+        run: |
+          aws s3 cp "$ZIP_FILE" "s3://${S3_BUCKET}/revisions/$ZIP_FILE"
+
+      # ────────────────────────────────────────────────────
+      # 4. Call AWS CodeDeploy to deploy to EC2
+      # ────────────────────────────────────────────────────
+      - name: Deploy via CodeDeploy
+        run: |
+          DEPLOYMENT_ID=$(aws deploy create-deployment \
+            --application-name "$APPLICATION_NAME" \
+            --deployment-group-name "$DEPLOYMENT_GROUP" \
+            --s3-location bucket="${S3_BUCKET}",key="revisions/${ZIP_FILE}",bundleType=zip \
+            --file-exists-behavior OVERWRITE \
+            --deployment-config-name CodeDeployDefault.OneAtATime \
+            --output text --query deploymentId)
+
+          echo "🚀 Deployment started: $DEPLOYMENT_ID"
+          echo "→ https://${AWS_REGION}.console.aws.amazon.com/codesuite/codedeploy/deployments/$DEPLOYMENT_ID"
+
+          # Wait for finish (max 15 min)
+          aws deploy wait deployment-successful --deployment-id "$DEPLOYMENT_ID" && \
+            echo "✅ Deployment SUCCESSFUL" || \
+            (echo "❌ Deployment FAILED — check CodeDeploy console for logs" && exit 1)
